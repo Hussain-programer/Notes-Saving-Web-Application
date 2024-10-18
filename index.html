@@ -1,0 +1,367 @@
+<html>
+<head>
+    <title>Notes App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/react/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"></link>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.3.1/styles/default.min.css"></link>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.3.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css"></link>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsPDF/2.3.1/jspdf.umd.min.js"></script>
+</head>
+<body class="h-screen flex justify-center items-center">
+    <div id="root" class="w-full max-w-md"></div>
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        const App = () => {
+            const [data, setData] = useState({
+                Notes: [],
+                Tasks: [],
+                Bookmarks: []
+            });
+            const [activeFolder, setActiveFolder] = useState("Notes");
+            const [searchTerm, setSearchTerm] = useState("");
+            const [newNoteContent, setNewNoteContent] = useState("");
+            const [newNoteTags, setNewNoteTags] = useState("");
+            const [newNoteColor, setNewNoteColor] = useState("#D8B4FE");
+            const [editingNote, setEditingNote] = useState(null);
+            const [darkMode, setDarkMode] = useState(false);
+            const [theme, setTheme] = useState("default");
+            const contentEditableRef = useRef(null);
+
+            useEffect(() => {
+                const savedData = JSON.parse(localStorage.getItem('notesData'));
+                if (savedData) {
+                    setData(savedData);
+                }
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem('notesData', JSON.stringify(data));
+            }, [data]);
+
+            const addNote = () => {
+                if (editingNote) {
+                    setData(prevData => ({
+                        ...prevData,
+                        [activeFolder]: prevData[activeFolder].map(note => 
+                            note.id === editingNote.id ? { ...note, text: newNoteContent, tags: newNoteTags, color: newNoteColor } : note
+                        )
+                    }));
+                    setEditingNote(null);
+                } else {
+                    const newNote = { id: Date.now(), text: newNoteContent, tags: newNoteTags, color: newNoteColor, pinned: false };
+                    setData(prevData => ({
+                        ...prevData,
+                        [activeFolder]: [...prevData[activeFolder], newNote]
+                    }));
+                }
+                setNewNoteContent("");
+                setNewNoteTags("");
+                setNewNoteColor("#D8B4FE");
+                contentEditableRef.current.innerHTML = "";
+            };
+
+            const deleteNote = (id) => {
+                setData(prevData => ({
+                    ...prevData,
+                    [activeFolder]: prevData[activeFolder].filter(note => note.id !== id),
+                    Bookmarks: prevData.Bookmarks.filter(note => note.id !== id)
+                }));
+            };
+
+            const editNote = (note) => {
+                setNewNoteContent(note.text);
+                setNewNoteTags(note.tags);
+                setNewNoteColor(note.color);
+                setEditingNote(note);
+                contentEditableRef.current.innerHTML = note.text;
+            };
+
+            const bookmarkNote = (note) => {
+                if (!data.Bookmarks.some(bookmarkedNote => bookmarkedNote.id === note.id)) {
+                    setData(prevData => ({
+                        ...prevData,
+                        Bookmarks: [...prevData.Bookmarks, note]
+                    }));
+                }
+            };
+
+            const pinNote = (id) => {
+                setData(prevData => ({
+                    ...prevData,
+                    [activeFolder]: prevData[activeFolder].map(note => 
+                        note.id === id ? { ...note, pinned: !note.pinned } : note
+                    )
+                }));
+            };
+
+            const saveNotes = () => {
+                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'notes.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const loadNotes = (event) => {
+                const file = event.target.files[0];
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const loadedData = JSON.parse(e.target.result);
+                    setData(loadedData);
+                };
+                reader.readAsText(file);
+            };
+
+            const exportToPDF = () => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                let y = 10;
+                data[activeFolder].forEach((note, index) => {
+                    doc.text(note.text, 10, y);
+                    y += 10;
+                    if (y > 280) {
+                        doc.addPage();
+                        y = 10;
+                    }
+                });
+                doc.save('notes.pdf');
+            };
+
+            const exportToMarkdown = () => {
+                let markdown = '';
+                data[activeFolder].forEach(note => {
+                    markdown += `# ${note.text}\n\n${note.tags}\n\n---\n\n`;
+                });
+                const blob = new Blob([markdown], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'notes.md';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const filteredNotes = activeFolder === "Bookmarks" 
+                ? data.Bookmarks.filter(note => note.text.toLowerCase().includes(searchTerm.toLowerCase()) || note.tags.toLowerCase().includes(searchTerm.toLowerCase()))
+                : data[activeFolder].filter(note => note.text.toLowerCase().includes(searchTerm.toLowerCase()) || note.tags.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            const sortedNotes = filteredNotes.sort((a, b) => b.pinned - a.pinned);
+
+            const applyFormat = (command, value = null) => {
+                document.execCommand(command, false, value);
+            };
+
+            const insertCodeBlock = () => {
+                const codeBlock = '<pre><code class="language-js">// Your code here</code></pre>';
+                document.execCommand('insertHTML', false, codeBlock);
+                hljs.highlightAll();
+            };
+
+            const insertEquation = () => {
+                const equation = '\\(E = mc^2\\)';
+                document.execCommand('insertHTML', false, `<span class="katex">${katex.renderToString(equation)}</span>`);
+            };
+
+            const toggleDarkMode = () => {
+                setDarkMode(!darkMode);
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.ctrlKey) {
+                    switch (e.key) {
+                        case 'b':
+                            e.preventDefault();
+                            applyFormat('bold');
+                            break;
+                        case 'i':
+                            e.preventDefault();
+                            applyFormat('italic');
+                            break;
+                        case 'u':
+                            e.preventDefault();
+                            applyFormat('underline');
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            };
+
+            useEffect(() => {
+                document.addEventListener('keydown', handleKeyDown);
+                return () => {
+                    document.removeEventListener('keydown', handleKeyDown);
+                };
+            }, []);
+
+            const getThemeClasses = () => {
+                switch (theme) {
+                    case 'blue':
+                        return 'bg-blue-100 text-blue-900';
+                    case 'green':
+                        return 'bg-green-100 text-green-900';
+                    case 'red':
+                        return 'bg-red-100 text-red-900';
+                    case 'purple':
+                        return 'bg-purple-100 text-purple-900';
+                    case 'azure':
+                        return 'bg-blue-200 text-blue-900';
+                    case 'wheat':
+                        return 'bg-yellow-100 text-yellow-900';
+                    case 'pink':
+                        return 'bg-pink-100 text-pink-900';
+                    case 'orange':
+                        return 'bg-orange-100 text-orange-900';
+                    case 'teal':
+                        return 'bg-teal-100 text-teal-900';
+                    case 'indigo':
+                        return 'bg-indigo-100 text-indigo-900';
+                    default:
+                        return darkMode ? 'bg-gray-900 text-white' : 'bg-white text-black';
+                }
+            };
+
+            return (
+                <div class={`p-4 w-full max-w-md mx-auto ${getThemeClasses()}`}>
+                    <div class="flex justify-between mb-4">
+                        <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={toggleDarkMode}>
+                            {darkMode ? 'Light Mode' : 'Dark Mode'}
+                        </button>
+                        <select class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} value={theme} onChange={(e) => setTheme(e.target.value)}>
+                            <option value="default">Default</option>
+                            <option value="blue">Blue</option>
+                            <option value="green">Green</option>
+                            <option value="red">Red</option>
+                            <option value="purple">Purple</option>
+                            <option value="azure">Azure</option>
+                            <option value="wheat">Wheat</option>
+                            <option value="pink">Pink</option>
+                            <option value="orange">Orange</option>
+                            <option value="teal">Teal</option>
+                            <option value="indigo">Indigo</option>
+                        </select>
+                    </div>
+                    <div class="relative mb-4">
+                        <input 
+                            type="text" 
+                            placeholder="Search notes" 
+                            class={`w-full p-2 rounded-lg ${darkMode ? 'bg-gray-800 text-white' : 'bg-gray-200 text-black'} placeholder-gray-400 focus:outline-none`} 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        <i class="fas fa-search absolute top-3 right-3 text-gray-400"></i>
+                    </div>
+                    <div class="flex justify-between mb-4">
+                        {Object.keys(data).map(folder => (
+                            <span 
+                                key={folder} 
+                                class={`font-bold cursor-pointer ${activeFolder === folder ? 'underline' : ''} hover:text-gray-300`}
+                                onClick={() => setActiveFolder(folder)}
+                            >
+                                {folder}
+                            </span>
+                        ))}
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                        {sortedNotes.map(note => (
+                            <div key={note.id} class="p-4 rounded-lg relative" style={{ backgroundColor: note.color }}>
+                                <div dangerouslySetInnerHTML={{ __html: note.text }}></div>
+                                <div class="text-sm text-gray-600 mt-2">{note.tags}</div>
+                                <div class="absolute top-2 right-2 flex space-x-2">
+                                    <button class={`p-1 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => editNote(note)}><i class="fas fa-edit"></i></button>
+                                    <button class={`p-1 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => deleteNote(note.id)}><i class="fas fa-trash"></i></button>
+                                    {activeFolder !== "Bookmarks" && (
+                                        <button class={`p-1 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => bookmarkNote(note)}><i class="fas fa-bookmark"></i></button>
+                                    )}
+                                    <button class={`p-1 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => pinNote(note.id)}><i class={`fas ${note.pinned ? 'fa-thumbtack' : 'fa-thumbtack'}`}></i></button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div class="mb-4">
+                        <div class="flex space-x-2 mb-2 overflow-x-auto">
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('bold')}><i class="fas fa-bold"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('italic')}><i class="fas fa-italic"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('underline')}><i class="fas fa-underline"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('strikethrough')}><i class="fas fa-strikethrough"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('superscript')}><i class="fas fa-superscript"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('subscript')}><i class="fas fa-subscript"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={() => applyFormat('formatBlock', '<h1>')}><i class="fas fa-heading"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={insertCodeBlock}><i class="fas fa-code"></i></button>
+                            <button class={`p-2 rounded ${darkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-black'} hover:bg-gray-600`} onClick={insertEquation}><i class="fas fa-square-root-alt"></i></button>
+                        </div>
+                        <div 
+                            contentEditable 
+                            ref={contentEditableRef}
+                            class={`w-full p-2 rounded-lg ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'} h-32 overflow-auto`} 
+                            onInput={(e) => setNewNoteContent(e.currentTarget.innerHTML)}
+                        ></div>
+                        <input 
+                            type="text" 
+                            placeholder="Add tags (comma separated)" 
+                            class={`w-full p-2 mt-2 rounded-lg ${darkMode ? 'bg-gray-800 text-white' : 'bg-white text-black'} focus:outline-none`} 
+                            value={newNoteTags}
+                            onChange={(e) => setNewNoteTags(e.target.value)}
+                        />
+                        <input 
+                            type="color" 
+                            class="w-full p-2 mt-2 rounded-lg focus:outline-none" 
+                            value={newNoteColor}
+                            onChange={(e) => setNewNoteColor(e.target.value)}
+                        />
+                    </div>
+                    <div class="flex justify-center space-x-4">
+                        <button 
+                            class={`p-4 rounded-lg text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-[#F43F5E] text-white'} hover:bg-[#e3344e] transition duration-300`}
+                            onClick={addNote}
+                        >
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <button 
+                            class={`p-4 rounded-lg text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-[#F43F5E] text-white'} hover:bg-[#e3344e] transition duration-300`}
+                            onClick={saveNotes}
+                        >
+                            <i class="fas fa-save"></i>
+                        </button>
+                        <input 
+                            type="file" 
+                            class="hidden" 
+                            id="fileInput" 
+                            onChange={loadNotes}
+                        />
+                        <label 
+                            htmlFor="fileInput" 
+                            class={`p-4 rounded-lg text-2xl cursor-pointer ${darkMode ? 'bg-gray-700 text-white' : 'bg-[#F43F5E] text-white'} hover:bg-[#e3344e] transition duration-300`}
+                        >
+                            <i class="fas fa-upload"></i>
+                        </label>
+                        <button 
+                            class={`p-4 rounded-lg text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-[#F43F5E] text-white'} hover:bg-[#e3344e] transition duration-300`}
+                            onClick={exportToPDF}
+                        >
+                            <i class="fas fa-file-pdf"></i>
+                        </button>
+                        <button 
+                            class={`p-4 rounded-lg text-2xl ${darkMode ? 'bg-gray-700 text-white' : 'bg-[#F43F5E] text-white'} hover:bg-[#e3344e] transition duration-300`}
+                            onClick={exportToMarkdown}
+                        >
+                            <i class="fas fa-file-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
